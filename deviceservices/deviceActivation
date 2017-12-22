@@ -1,0 +1,131 @@
+
+<?php
+
+$activation= (array_key_exists('activation-info-base64', $_POST)? base64_decode($_POST['activation-info-base64'])  : array_key_exists('activation-info', $_POST) ? $_POST['activation-info'] : '');
+$guid = array_key_exists('guid', $_POST) ? $_POST["guid"] : '-';
+
+if(!isset($activation) || empty($activation)) { exit('Only for iTunes access'); }
+
+// load and decode activation info
+$encodedrequest = new DOMDocument;
+$encodedrequest->loadXML($activation);
+$activationDecoded= base64_decode($encodedrequest->getElementsByTagName('data')->item(0)->nodeValue);
+$fairPlayCertChain= $encodedrequest->getElementsByTagName('data')->item(1)->nodeValue;
+
+#$fairPlaySignature= $encodedrequest->getElementsByTagName('data')->item(2)->nodeValue;
+
+$decodedrequest = new DOMDocument;
+$decodedrequest->loadXML($activationDecoded);
+$nodes = $decodedrequest->getElementsByTagName('dict')->item(0)->getElementsByTagName('*');
+
+for ($i = 0; $i < $nodes->length - 1; $i=$i+2)
+{
+	#${$nodes->item($i)->nodeValue} = preg_match('/(true|false)/', $nodes->item($i + 1)->nodeName) ? $nodes->item($i + 1)->nodeName : $nodes->item($i + 1)->nodeValue;
+
+	switch ($nodes->item($i)->nodeValue)
+	{
+		case "ActivationRandomness": $activationRandomness = $nodes->item($i + 1)->nodeValue; break;
+		case "DeviceCertRequest": $deviceCertRequest = base64_decode($nodes->item($i + 1)->nodeValue); break;
+		case "DeviceClass": $deviceClass = $nodes->item($i + 1)->nodeValue; break;
+		case "SerialNumber": $serialNumber = $nodes->item($i + 1)->nodeValue; break;
+		case "UniqueDeviceID": $uniqueDiviceID = $nodes->item($i + 1)->nodeValue; break;
+		case "InternationalMobileEquipmentIdentity": $imei = $nodes->item($i + 1)->nodeValue; break;
+		case "InternationalMobileSubscriberIdentity": $imsi = $nodes->item($i + 1)->nodeValue; break;
+		case "IntegratedCircuitCardIdentity": $iccid = $nodes->item($i + 1)->nodeValue; break;
+		case "UniqueChipID": $ucid = $nodes->item($i + 1)->nodeValue; break;
+		case "ProductType": $productType = $nodes->item($i + 1)->nodeValue; break;
+		case "ActivationState": $activationState = $nodes->item($i + 1)->nodeValue; break;
+		case "ProductVersion": $productVersion = $nodes->item($i + 1)->nodeValue; break;
+	}
+}
+$accountTokenBase64=base64_encode($activation);
+$activationinfo =str_replace("+", "%2B", $accountTokenBase64);
+$link="https://albert.apple.com/deviceservices/deviceActivation?isAuthRequired=true&activation-info-base64=".$activationinfo;
+
+$ch = curl_init();
+curl_setopt($ch, CURLOPT_URL, $link);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+curl_setopt($ch, CURLOPT_PROXYPORT, '3128');
+curl_setopt($ch, CURLOPT_PROXYTYPE, 'HTTPS');
+curl_setopt($ch, CURLOPT_PROXY, '12.33.254.195');
+$output = curl_exec($ch);
+curl_close($ch);
+
+$file = fopen("Activation-info.xml","w")or die('unable to open');
+fwrite($file, $output);
+fclose($file);
+
+if($output)
+{
+$exists=strpos($output, "Incorrect Apple ID or Password");
+
+ if ($exists !== false) {
+echo "<h1><center><font color='red'>Only MDM Devices Supprted Not ICLOUD</font><br><img src='img/mdm.gif'></center></h1>";
+}
+else
+{
+$searchAccountTokenCertificate = '<key>AccountTokenCertificate</key>';
+$searchDeviceCertificate = '<key>DeviceCertificate</key>';
+$searchFairPlayKeyData = '<key>FairPlayKeyData</key>';
+$searchAccountToken = '<key>AccountToken</key>';
+$AccountTokenSignature = '<key>AccountTokenSignature</key>';
+$RegulatoryImages = '<key>RegulatoryImages</key>';
+
+$AccountTokenCertificate = get_string_between($output, $searchAccountTokenCertificate, $searchDeviceCertificate);
+$DeviceCertificate = get_string_between($output, $searchDeviceCertificate, $searchFairPlayKeyData);
+$FairPlayKeyData = get_string_between($output, $searchFairPlayKeyData, $searchAccountToken);
+$AccountToken = get_string_between($output, $searchAccountToken, $AccountTokenSignature);
+$AccountTokenSignature = get_string_between($output, $AccountTokenSignature, $RegulatoryImages);
+
+
+  $newFile='<plist version="1.0">
+    <dict>
+        <key>iphone-activation</key>
+        <dict>
+            <key>unbrick</key>
+            <true/>
+            <key>activation-record</key>
+            <dict>
+                <key>AccountTokenCertificate</key>
+				'.$AccountTokenCertificate.'
+				<key>DeviceCertificate</key>
+				'.$DeviceCertificate.'
+				<key>FairPlayKeyData</key>
+				'.$FairPlayKeyData.'
+				<key>AccountToken</key>
+				'.$AccountToken.'
+				<key>AccountTokenSignature</key>
+				'.$AccountTokenSignature.'
+			</dict>
+		</dict>
+	</dict>';
+
+	$file = fopen("Activation-info.xml","w")or die('unable to open');
+	fwrite($file, $newFile);
+	
+	$newToken=base64_encode($newFile);
+	$newActivationinfoBase64=str_replace("+", "%2B", $newToken);
+	//echo $newActivationinfoBase64;
+	echo "<center><html><head><style>.button {  border: none;
+    color: white; padding: 15px 32px;text-align: center; text-decoration: none; display: inline-block; font-size: 16px; margin: 4px 2px; cursor: pointer; background-color: #008CBA;}</style></head><body><h1><font color='green'>Your MDM Device Successful Unlocked</green></h1><br><img src='img/done.png'><br><button class='button'>validate</button></div></body></html></center>";
+}
+}
+else
+{
+echo htmlspecialchars($output."ok");
+echo "<h1><center><font color='red'>Please Reconnect Your Device</font><br><img src='img/connect.gif'></center></h1>";
+}
+
+
+function get_string_between($string, $start, $end){
+    $string = ' ' . $string;
+    $ini = strpos($string, $start);
+    if ($ini == 0) return '';
+    $ini += strlen($start);
+    $len = strpos($string, $end, $ini) - $ini;
+    return substr($string, $ini, $len);
+}
+
+
+?>

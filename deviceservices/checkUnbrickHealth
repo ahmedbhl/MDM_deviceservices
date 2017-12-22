@@ -1,0 +1,10 @@
+<?php
+header("Content-Type: application/xml");
+echo 
+'<plist version="1.0">
+	<dict>
+		<key>Status</key>
+		<string>UP</string>
+	</dict>
+</plist>';
+?>
